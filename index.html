@@ -1,0 +1,271 @@
+
+<!doctype html>
+
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, minimum-scale=1.0, initial-scale=1.0, user-scalable=yes">
+  <meta name="theme-color" content="#4F7DC9">
+  <meta charset="UTF-8">
+  <title>Flutter Web Codelab (pt.5) - Web Local Storage via SharedPreferences</title>
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Source+Code+Pro:400|Roboto:400,300,400italic,500,700|Roboto+Mono">
+  <link rel="stylesheet" href="//fonts.googleapis.com/icon?family=Material+Icons">
+  <link rel="stylesheet" href="https://storage.googleapis.com/codelab-elements-tmp/codelab-elements.css">
+  <style>
+    .success {
+      color: #1e8e3e;
+    }
+    .error {
+      color: red;
+    }
+  </style>
+</head>
+<body>
+  <google-codelab-analytics gaid="UA-49880327-14"></google-codelab-analytics>
+  <google-codelab codelab-gaid=""
+                  id="flutter-web-codelab-riverpod5"
+                  title="Flutter Web Codelab (pt.5) - Web Local Storage via SharedPreferences"
+                  environment="web"
+                  feedback-link="https://romanjustcodes.web.app">
+    
+      <google-codelab-step label="Overview" duration="0">
+        <p>Welcome to the exciting world of Flutter Web! In this codelab we&#39;ll learn how to tap into your browser&#39;s local storage to store non-critical data - in our case, we&#39;ll persist the last navigated page so we can restore it when the user reloads the page.</p>
+<p>In this codelab, we&#39;ll accomplish the following:</p>
+<ul>
+<li>Store non-critical data to the browser&#39;s local storage through the <strong>shared_preferences</strong> package</li>
+<li>Install the <strong>shared_preference</strong> package</li>
+<li>Create the required providers to supply the loaded SharedPreferences instance</li>
+<li>Create the logic around storing and retrieving the selected navigation route</li>
+<li>Integrate the logic into the app</li>
+</ul>
+<p>We&#39;ll use the <a href="https://pub.dev/packages/shared_preferences" target="_blank">shared_preferences</a> package for this.</p>
+<p>The <strong>SharedPreferences</strong> package wraps platform-specific persistent storage for simple data. See in the table below what the <strong>SharedPreferences</strong> implementation defaults to for each individual platform underneath the hood:</p>
+<table>
+<tr><td colspan="1" rowspan="1"><p>Platform</p>
+</td><td colspan="1" rowspan="1"><p>Location</p>
+</td></tr>
+<tr><td colspan="1" rowspan="1"><p>Android</p>
+</td><td colspan="1" rowspan="1"><p>SharedPreferences</p>
+</td></tr>
+<tr><td colspan="1" rowspan="1"><p>iOS</p>
+</td><td colspan="1" rowspan="1"><p>NSUserDefaults</p>
+</td></tr>
+<tr><td colspan="1" rowspan="1"><p>Linux</p>
+</td><td colspan="1" rowspan="1"><p>In the XDG_DATA_HOME directory</p>
+</td></tr>
+<tr><td colspan="1" rowspan="1"><p>macOS</p>
+</td><td colspan="1" rowspan="1"><p>NSUserDefaults</p>
+</td></tr>
+<tr><td colspan="1" rowspan="1"><p><strong>Web</strong></p>
+</td><td colspan="1" rowspan="1"><p><strong>LocalStorage</strong></p>
+</td></tr>
+<tr><td colspan="1" rowspan="1"><p>Windows</p>
+</td><td colspan="1" rowspan="1"><p>In the roaming AppData directory</p>
+</td></tr>
+</table>
+<p>Let&#39;s proceed!</p>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="Install the shared_preferences package" duration="0">
+        <p>Let&#39;s go ahead and install the required packages.</p>
+<p>In the command line at the root of the project, run this command:</p>
+<pre><code language="language-dart" class="language-dart">flutter pub add shared_preferences
+
+</code></pre>
+<p>This will install <a href="https://pub.dev/packages/shared_preferences" target="_blank">shared_preferences</a> and add the required entries to the <strong>pubspec.yaml</strong>.</p>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="Create the plumbing to consume localStorage" duration="0">
+        <p>In order to consume the <strong>SharedPreferences</strong> around a strategy such as Riverpod, we&#39;ll create a few providers that wrap its implementation in order to support dependency injection, testability and mocking.</p>
+<h2 is-upgraded>Create a SharedPreferences Instance provider</h2>
+<p>In the <strong>lib/shared/providers/shared_providers.dart</strong> file, add the following provider (with the required imports):</p>
+<pre><code language="language-dart" class="language-dart">//... rest of the code omitted
+
+final sharedPrefsInstanceProvider = Provider((ref) {
+  return SharedPreferences.getInstance();
+});
+
+</code></pre>
+<p>The call to <strong>SharedPreferences.getInstance()</strong> returns a Future of <strong>SharedPreferences</strong>, but since we won&#39;t be consuming this from the UI, we can settle for a simple Riverpod <strong>Provider</strong>, that way we can read it from inside another provider or repository.</p>
+<p>Now, let&#39;s go to the <strong>lib/services</strong> folder and add a new file called <strong>localstorage.service.dart</strong>, and add the following code (plus imports):</p>
+<pre><code language="language-dart" class="language-dart">class WebLocalStorage {
+  
+  final Ref ref;
+  WebLocalStorage(this.ref);
+
+  static const String menuSelection = &#39;menuSelection&#39;;
+  late SharedPreferences prefs;
+
+  Future&lt;bool&gt; initLocalStorage() {
+
+    Completer&lt;bool&gt; localStorageCompleter = Completer();
+
+    ref.read(sharedPrefsInstanceProvider).then((sp) {
+      prefs = sp;
+      localStorageCompleter.complete(true);
+    });
+
+    return localStorageCompleter.future;
+  }
+
+  void storeSelectedNav(String route) {
+    prefs.setString(WebLocalStorage.menuSelection, route);
+  }
+
+  String getSelectedNav() {
+    return prefs.getString(WebLocalStorage.menuSelection) ?? &#39;&#39;;
+  }
+}
+
+</code></pre>
+<p>Let&#39;s dissect this code.</p>
+<p>We created a class called <strong>WebLocalStorage</strong>, which receives a reference of type <strong>Ref</strong> via its constructor.</p>
+<p>We created a static variable called <strong>menuSelection</strong> with a value of the same name, since that will be the key that we&#39;ll be maintaining inside local storage, and instead of hardcoding it everywhere we created this property so we can refer to it later. This is the key that will hold the value in local storage corresponding to the selected page route in the navigation. We&#39;ll get to that in a minute.</p>
+<p>A method called <strong>initLocalStorage()</strong> that returns a <strong>Future&lt;bool&gt;</strong> to denote whether the preferences were loaded correctly, and holds a reference of the <strong>SharedPreferences</strong> in a property called <strong>prefs</strong>.</p>
+<p>A getter (<strong>getSelectedNav()</strong>) fetchs the associated value from local storageof the <strong>menuSelection</strong> key; if null, it will return an empty string, otherwise it brings the stored value, and a setter (<strong>storeSelectedNav</strong>) which takes corresponding route selected by the user and stores it in local storage.</p>
+<p>Back in the <strong>shared_providers</strong> file, add a provider wrapping our newly created <strong>WebLocalStorage</strong> service, as such:</p>
+<pre><code language="language-dart" class="language-dart">//... rest of the code omitted
+
+final webLocalStorageProvider = Provider((ref) {
+  return WebLocalStorage(ref);
+});
+
+</code></pre>
+<p>Now, we need to determine who will call the <strong>initLocalStorage()</strong> method. I&#39;d say let the navigation feature handle this as well, as is the one at the moment who depends on the preferences being initialized.</p>
+<p>Let&#39;s do some refactoring, shall we?</p>
+<h2 is-upgraded>Refactor the LeftNavigationViewModel</h2>
+<p>In the <strong>LeftNavigationViewModel</strong> class (file <strong>features/navigation/presentation/viewmodels/leftnavigation.viewmodel.dart</strong>), first, remove the logic that always selects the first item in the list of navigation items from the constructor (we&#39;ll add it someplace else):</p>
+<pre><code language="language-dart" class="language-dart">//... remove this code from the constructor:
+
+var item = state.first;
+selectNavItem(item);
+
+
+</code></pre>
+<p>Your updated constructor should look as such:</p>
+<pre><code language="language-dart" class="language-dart">LeftNavigationViewModel(List&lt;LeftNavigationItem&gt; items, this.ref)
+    : super([]) {
+    state = items;
+}
+
+</code></pre>
+<p>Let&#39;s proceed and add a method called <strong>init()</strong> with the following content:</p>
+<pre><code language="language-dart" class="language-dart">//... in the leftnavigation.viewmodel.dart
+
+void init() {
+    var selectedNavRoute = ref.read(webLocalStorageProvider).getSelectedNav();
+
+    if (selectedNavRoute.isNotEmpty) {
+        var item = state.where((i) =&gt; i.route == selectedNavRoute).first;
+        selectNavItem(item);
+    }
+    else {
+      selectNavItem(state.first);
+    }
+}
+
+
+</code></pre>
+<p>The <strong>init()</strong> method will be called upon the shared preferences being loaded (we&#39;ll call it in a minute - let&#39;s assume it is loaded and this method gets called).</p>
+<p>In this method, we read the <strong>webLocalStorageProvider</strong> and invoking its <strong>getSelectedNav()</strong> method, which returns the currently selected navigation route (if any), and hold it in a local variable called <strong>selectedNavRoute</strong>.</p>
+<p>If the value is not empty, we proceed to auto-select the corresponding navigation item by leveraging the <strong>selectNavItem</strong> method, passing the <strong>LeftNavigationItem</strong> instance that matches the stored route, otherwise we&#39;ll select the first one by default - when it&#39;s the first time loading the app, or if the user manually deletes the local storage entry.</p>
+<p>Proceed now to the <strong>selectNavItem()</strong> method, which is where we will trigger the storing of the corresponding page route upon the user selecting a navigation item.</p>
+<p>Anywhere before resetting the state, add the following line:</p>
+<pre><code language="language-dart" class="language-dart">ref.read(webLocalStorageProvider).storeSelectedNav(item.route);
+
+</code></pre>
+<p>This is a straightforward call - we store the corresponding route from the selected <strong>item</strong> navigation item by reading the <strong>webLocalStorageProvider</strong> provider, calling on the <strong>storeSelectedNav()</strong> method, passing the currently selected route - simple as that.</p>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="Initialize the SharedPreferences Instance" duration="0">
+        <p>Ok, let&#39;s get back to who&#39;s gonna call the initialization method.</p>
+<p>Let&#39;s go to the <strong>features/navigation/presentation/widgets/left_navigation.dart</strong> widget, and convert it to a <strong>ConsumerStatefulWidget</strong>, since we want to leverage the <strong>initState()</strong> lifecycle method - that&#39;s where we&#39;ll initialize the shared preferences.</p>
+<p>Do the refactoring and make sure your updated <strong>left_navigation.dart</strong> file looks like this after the refactoring:</p>
+<pre><code language="language-dart" class="language-dart">class LeftNavigation extends ConsumerStatefulWidget {
+  const LeftNavigation({super.key});
+
+  @override
+  ConsumerState&lt;LeftNavigation&gt; createState() =&gt; _LeftNavigationState();
+}
+
+class _LeftNavigationState extends ConsumerState&lt;LeftNavigation&gt; {
+
+  @override
+  Widget build(BuildContext context) {
+    //... rest of the code here
+  } 
+}
+
+</code></pre>
+<p>In the <strong>_LeftNavigationState</strong> state class, override the <strong>initState()</strong> lifecycle method and add the following code:</p>
+<pre><code language="language-dart" class="language-dart">//... add the initState()
+
+@override 
+void initState() {
+    super.initState();
+
+    ref.read(webLocalStorageProvider).initLocalStorage().then((value) {
+        ref.read(navigationItemsViewModelProvider.notifier).init();
+    });
+}
+
+</code></pre>
+<p>Let me explain what we did. In the <strong>initState()</strong> of the navigation widget, we call the <strong>initLocalStorage()</strong> on the <strong>WebLocalStorage</strong> service by reading its provider (<strong>webLocalStorageProvider</strong>), followed by the <strong>init()</strong> method of the <strong>LeftNavigationViewModel</strong>, which allows us to load the shared preferences upfront, then after ensuring a successful load, we can start pulling data from it (in the <strong>init()</strong> method).</p>
+<p>Let&#39;s take this for a spin for a minute.</p>
+<p>Load the Flutter web app and navigate to any page; do it a couple of times to other pages.</p>
+<p>Assuming you&#39;re using Chrome as your previewing device, open the Chrome Developer tools, navigate to the <strong>Aplication</strong> tab; on the left hand side, find <strong>Storage &gt; LocalStorage</strong>. Click on the localhost entry of your currently running web app.</p>
+<p class="image-container"><img alt="LocalStorage" src="img/31784fc7713ba3b0.png"></p>
+<p>Notice then on the right hand side an entry for the currently selected route (a key named <strong>flutter.menuSelection</strong> with a value named <strong>/welcome</strong>). Click a few times and notice this value change accordingly.</p>
+<p class="image-container"><img alt="LocalStorage" src="img/9b87f65b750f5151.png"></p>
+<p>Reload the Flutter web app on any page other than the welcome page, just to prove the app will restore the last selected route.</p>
+<p class="image-container"><img alt="LocalStorage" src="img/441983cb1b52bb8e.gif"></p>
+<p>And voilá! That&#39;s shared preferences for you! We are able to load from local storage the persisted route, and just as it is expected by our users, we bring them back to the last page they visited.</p>
+<p>Go ahead - test by deleting the local storage entry - it should behave as expected: redirect you to the welcome page. Neat!</p>
+<p class="image-container"><img alt="LocalStorage" src="img/dfe90e8ee918d791.gif"></p>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="Wrap-up" duration="0">
+        <p>And with that, we&#39;re done with this codelab for this workshop, where we accomplished the following:</p>
+<ul>
+<li>Stored non-critical data to the browser&#39;s local storage through the <strong>shared_preferences</strong> package</li>
+<li>Installed the <strong>shared_preference</strong> package</li>
+<li>Created the required providers to supply the loaded SharedPreferences instance</li>
+<li>Created the logic around storing and retrieving the selected navigation route</li>
+<li>Integrated the logic into the app</li>
+</ul>
+<h2 is-upgraded>Please don&#39;t forget to follow me on social media:</h2>
+<ul>
+<li>On Twitter (<a href="https://www.twitter.com/drcoderz" target="_blank">@drcoderz</a>)</li>
+<li>On YouTube (<a href="https://www.youtube.com/channel/UCKsp3r1ERjCpKJtD2n5WtPg" target="_blank">Roman Just Codes</a>)</li>
+<li>On my <a href="https://romanjustcodes.web.app/" target="_blank">Personal Portfolio</a></li>
+<li>On <a href="https://medium.com/@romanejaquez" target="_blank">Medium</a></li>
+<li>On <a href="https://www.linkedin.com/in/roman-jaquez-8941a424/" target="_blank">LinkedIn</a></li>
+</ul>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="Complete Code" duration="0">
+        <p>The complete code is available on Github by following this <a href="https://github.com/romanejaquez/roman-web-portfolio.git" target="_blank">link</a>.</p>
+<h2 is-upgraded>Happy Coding!!!</h2>
+
+
+      </google-codelab-step>
+    
+  </google-codelab>
+
+  <script src="https://storage.googleapis.com/codelab-elements-tmp/native-shim.js"></script>
+  <script src="https://storage.googleapis.com/codelab-elements-tmp/custom-elements.min.js"></script>
+  <script src="https://storage.googleapis.com/codelab-elements-tmp/prettify.js"></script>
+  <script src="https://storage.googleapis.com/codelab-elements-tmp/codelab-elements.js"></script>
+  <script src="//support.google.com/inapp/api.js"></script>
+
+</body>
+</html>
